@@ -9,3 +9,7 @@ dist/
 build/
 .env.local
 .vscode/
+backend/uploads/*
+!backend/uploads/.gitkeep
+!backend/uploads/prescriptions
+backend/uploads/prescriptions/*

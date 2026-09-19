@@ -9,9 +9,12 @@ class User(Base):
     email = sa.Column(sa.String(255), unique=True, nullable=False)
     password_hash = sa.Column(sa.String(255), nullable=False)
     full_name = sa.Column(sa.String(255))
-    role = sa.Column(sa.Enum('customer','admin','pharmacist', name='user_role'), nullable=False, server_default='customer')
+    role = sa.Column(sa.Enum('customer','admin','pharmacist','operador', name='user_role'), nullable=False, server_default='customer')
     phone = sa.Column(sa.String(50))
     is_active = sa.Column(sa.Boolean, default=True)
+    # Refreshed on every authenticated request (throttled) so the admin panel can show
+    # which operators are online right now, without needing websockets.
+    last_seen_at = sa.Column(sa.DateTime(timezone=True))
     created_at = sa.Column(sa.DateTime(timezone=True), default=datetime.datetime.utcnow)
     updated_at = sa.Column(sa.DateTime(timezone=True), default=datetime.datetime.utcnow, onupdate=datetime.datetime.utcnow)
 
@@ -28,6 +31,7 @@ class Product(Base):
     __tablename__ = "products"
     id = sa.Column(UUID(as_uuid=True), primary_key=True, server_default=sa.text('gen_random_uuid()'))
     sku = sa.Column(sa.String(100), unique=True)
+    barcode = sa.Column(sa.String(64), unique=True)
     name = sa.Column(sa.String(255), nullable=False)
     description = sa.Column(sa.Text)
     category_id = sa.Column(UUID(as_uuid=True), sa.ForeignKey('categories.id', ondelete='SET NULL'))
@@ -54,12 +58,11 @@ class Order(Base):
     __tablename__ = "orders"
     id = sa.Column(UUID(as_uuid=True), primary_key=True, server_default=sa.text('gen_random_uuid()'))
     user_id = sa.Column(UUID(as_uuid=True), sa.ForeignKey('users.id', ondelete='SET NULL'))
-    status = sa.Column(sa.Enum('cart','pending_payment','paid','processing','shipped','delivered','cancelled','refunded', name='order_status'), nullable=False, server_default='cart')
+    status = sa.Column(sa.Enum('cart','pending_payment','paid','ready_for_pickup','completed','cancelled','refunded', name='order_status'), nullable=False, server_default='cart')
     total_amount = sa.Column(sa.Numeric(12,2), default=0)
     currency = sa.Column(sa.String(3), default='USD')
-    shipping_address = sa.Column(JSONB)
     billing_address = sa.Column(JSONB)
-    shipping_method = sa.Column(sa.String(255))
+    pickup_code = sa.Column(sa.String(20), unique=True)
     created_at = sa.Column(sa.DateTime(timezone=True), default=datetime.datetime.utcnow)
     updated_at = sa.Column(sa.DateTime(timezone=True), default=datetime.datetime.utcnow, onupdate=datetime.datetime.utcnow)
 
@@ -82,7 +85,7 @@ class Payment(Base):
     amount = sa.Column(sa.Numeric(12,2), nullable=False)
     currency = sa.Column(sa.String(3), default='USD')
     status = sa.Column(sa.Enum('initiated','succeeded','failed','refunded', name='payment_status'), nullable=False, server_default='initiated')
-    metadata = sa.Column(JSONB)
+    payment_metadata = sa.Column('metadata', JSONB)
     created_at = sa.Column(sa.DateTime(timezone=True), default=datetime.datetime.utcnow)
 
 class Prescription(Base):
@@ -107,17 +110,6 @@ class ProductImage(Base):
     alt_text = sa.Column(sa.String(255))
     sort_order = sa.Column(sa.Integer, default=0)
 
-class Coupon(Base):
-    __tablename__ = "coupons"
-    id = sa.Column(UUID(as_uuid=True), primary_key=True, server_default=sa.text('gen_random_uuid()'))
-    code = sa.Column(sa.String(100), unique=True, nullable=False)
-    type = sa.Column(sa.String(50))
-    discount_value = sa.Column(sa.Numeric(10,2))
-    valid_from = sa.Column(sa.DateTime)
-    valid_to = sa.Column(sa.DateTime)
-    usage_limit = sa.Column(sa.Integer)
-    used_count = sa.Column(sa.Integer, default=0)
-
 class AuditLog(Base):
     __tablename__ = "audit_logs"
     id = sa.Column(UUID(as_uuid=True), primary_key=True, server_default=sa.text('gen_random_uuid()'))
@@ -134,3 +126,17 @@ class StripeEvent(Base):
     event_id = sa.Column(sa.String(255), primary_key=True)
     received_at = sa.Column(sa.DateTime(timezone=True), default=datetime.datetime.utcnow)
     payload = sa.Column(JSONB)
+
+
+class ChatMessage(Base):
+    __tablename__ = "chat_messages"
+    id = sa.Column(UUID(as_uuid=True), primary_key=True, server_default=sa.text('gen_random_uuid()'))
+    # customer_id identifies which customer's single ongoing thread this belongs
+    # to, regardless of who actually sent it (customer or a replying admin).
+    customer_id = sa.Column(UUID(as_uuid=True), sa.ForeignKey('users.id', ondelete='CASCADE'), nullable=False)
+    sender_id = sa.Column(UUID(as_uuid=True), sa.ForeignKey('users.id', ondelete='SET NULL'))
+    sender_role = sa.Column(sa.Enum('customer', 'admin', 'bot', name='chat_sender_role'), nullable=False)
+    body = sa.Column(sa.Text, nullable=False)
+    read_by_admin = sa.Column(sa.Boolean, nullable=False, default=False)
+    read_by_customer = sa.Column(sa.Boolean, nullable=False, default=False)
+    created_at = sa.Column(sa.DateTime(timezone=True), default=datetime.datetime.utcnow)

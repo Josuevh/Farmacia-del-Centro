@@ -18,15 +18,24 @@ services:
       - "8000:8000"
     environment:
       - DATABASE_URL=postgresql+asyncpg://postgres:postgres@db:5432/farmacia
-      - SECRET_KEY=change_this
-      - STRIPE_API_KEY=
-      - STRIPE_WEBHOOK_SECRET=
+      - SECRET_KEY=${SECRET_KEY}
+      - STRIPE_API_KEY=${STRIPE_API_KEY}
+      - STRIPE_WEBHOOK_SECRET=${STRIPE_WEBHOOK_SECRET}
+      - GEMINI_API_KEY=${GEMINI_API_KEY}
     volumes:
-      - ./backend:/app/backend
+      - ./backend/app:/app/app
+      - ./backend/uploads:/app/uploads
   frontend:
     build: ./frontend
     ports:
       - "3000:3000"
+    environment:
+      - WDS_SOCKET_PORT=0
+      - CHOKIDAR_USEPOLLING=true
+      - WATCHPACK_POLLING=true
+    volumes:
+      - ./frontend:/app
+      - /app/node_modules
 
 volumes:
   db-data:

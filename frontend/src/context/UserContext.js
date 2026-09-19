@@ -37,6 +37,11 @@ export function UserProvider({ children }){
     return me.data;
   };
 
+  const register = async (email, password, fullName) =>{
+    await axios.post('/auth/register', { email, password, full_name: fullName || null });
+    return login(email, password);
+  };
+
   const logout = () =>{
     setUser(null);
     setToken(null);
@@ -45,7 +50,7 @@ export function UserProvider({ children }){
   };
 
   return (
-    <UserContext.Provider value={{ user, token, loading, login, logout }}>
+    <UserContext.Provider value={{ user, token, loading, login, register, logout }}>
       {children}
     </UserContext.Provider>
   )

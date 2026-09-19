@@ -73,7 +73,7 @@ async def stripe_webhook(request: Request, db: AsyncSession = Depends(get_db)):
             if order_id:
                 await finalize_order_inventory(db, order_id)
             # create payment record (crud.create_payment is idempotent by provider_payment_id)
-            await crud.create_payment(db, order_id=order_id, provider='stripe', provider_payment_id=session.get('id'), amount=amt, currency=currency, status='succeeded', metadata=session)
+            await crud.create_payment(db, order_id=order_id, provider='stripe', provider_payment_id=session.get('id'), amount=amt, currency=currency, status='succeeded', payment_metadata=session)
             # mark order as paid if order_id provided
             if order_id:
                 await crud.mark_order_paid(db, order_id)
@@ -98,11 +98,8 @@ async def checkout_order(payload: dict, db: AsyncSession = Depends(get_db), curr
     items = payload.get('items')
     if not items:
         raise HTTPException(status_code=400, detail='items required')
-    # create order
-    user_id = payload.get('user_id') or None
-    if not user_id:
-        # require authenticated user
-        raise HTTPException(status_code=401, detail='Authentication required')
+    # create order for the authenticated user
+    user_id = str(current_user.id)
     try:
         order = await create_order_with_items(db, user_id, items)
     except Exception as e:
@@ -110,19 +107,22 @@ async def checkout_order(payload: dict, db: AsyncSession = Depends(get_db), curr
 
     # create stripe session
     amount_cents = int(Decimal(order.total_amount) * Decimal(100)) if order.total_amount else 0
-    session = stripe.checkout.Session.create(
-        payment_method_types=['card'],
-        line_items=[{
-            'price_data': {
-                'currency': 'usd',
-                'product_data': {'name': f'Orden {order.id}'},
-                'unit_amount': amount_cents,
-            },
-            'quantity': 1,
-        }],
-        mode='payment',
-        success_url=payload.get('success_url', 'https://example.com/success'),
-        cancel_url=payload.get('cancel_url', 'https://example.com/cancel'),
-        metadata={'order_id': str(order.id)}
-    )
+    try:
+        session = stripe.checkout.Session.create(
+            payment_method_types=['card'],
+            line_items=[{
+                'price_data': {
+                    'currency': 'usd',
+                    'product_data': {'name': f'Orden {order.id}'},
+                    'unit_amount': amount_cents,
+                },
+                'quantity': 1,
+            }],
+            mode='payment',
+            success_url=payload.get('success_url', 'https://example.com/success'),
+            cancel_url=payload.get('cancel_url', 'https://example.com/cancel'),
+            metadata={'order_id': str(order.id)}
+        )
+    except stripe.error.StripeError as e:
+        raise HTTPException(status_code=502, detail=f'Stripe error: {e.user_message or str(e)}')
     return {'checkout_url': session.url, 'session_id': session.id, 'order_id': str(order.id)}

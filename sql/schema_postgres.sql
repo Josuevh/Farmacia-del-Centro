@@ -5,8 +5,8 @@
 CREATE EXTENSION IF NOT EXISTS pgcrypto;
 
 -- Tipos enumerados
-CREATE TYPE user_role AS ENUM ('customer', 'admin', 'pharmacist');
-CREATE TYPE order_status AS ENUM ('cart', 'pending_payment', 'paid', 'processing', 'shipped', 'delivered', 'cancelled', 'refunded');
+CREATE TYPE user_role AS ENUM ('customer', 'admin', 'pharmacist', 'operador');
+CREATE TYPE order_status AS ENUM ('cart', 'pending_payment', 'paid', 'ready_for_pickup', 'completed', 'cancelled', 'refunded');
 CREATE TYPE payment_status AS ENUM ('initiated', 'succeeded', 'failed', 'refunded');
 CREATE TYPE prescription_status AS ENUM ('pending', 'approved', 'rejected');
 
@@ -19,6 +19,7 @@ CREATE TABLE users (
   role user_role NOT NULL DEFAULT 'customer',
   phone VARCHAR(50),
   is_active BOOLEAN NOT NULL DEFAULT TRUE,
+  last_seen_at TIMESTAMPTZ,
   created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
   updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
@@ -37,6 +38,7 @@ CREATE TABLE categories (
 CREATE TABLE products (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   sku VARCHAR(100) UNIQUE,
+  barcode VARCHAR(64) UNIQUE,
   name VARCHAR(255) NOT NULL,
   description TEXT,
   category_id UUID REFERENCES categories(id) ON DELETE SET NULL,
@@ -74,6 +76,19 @@ CREATE TABLE inventory (
   UNIQUE (product_id, batch_number) -- si se desea inventario por lote, puede ajustarse
 );
 
+-- Pedidos (recolección en tienda, sin envío a domicilio)
+CREATE TABLE orders (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id UUID REFERENCES users(id) ON DELETE SET NULL,
+  status order_status NOT NULL DEFAULT 'cart',
+  total_amount NUMERIC(12,2) DEFAULT 0,
+  currency VARCHAR(3) DEFAULT 'USD',
+  billing_address JSONB,
+  pickup_code VARCHAR(20) UNIQUE,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
 -- Recetas (prescriptions) - opcional pero incluida
 CREATE TABLE prescriptions (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -85,20 +100,6 @@ CREATE TABLE prescriptions (
   status prescription_status NOT NULL DEFAULT 'pending',
   reviewed_by UUID REFERENCES users(id) ON DELETE SET NULL,
   notes TEXT,
-  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-  updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
-);
-
--- Pedidos
-CREATE TABLE orders (
-  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  user_id UUID REFERENCES users(id) ON DELETE SET NULL,
-  status order_status NOT NULL DEFAULT 'cart',
-  total_amount NUMERIC(12,2) DEFAULT 0,
-  currency VARCHAR(3) DEFAULT 'USD',
-  shipping_address JSONB,
-  billing_address JSONB,
-  shipping_method VARCHAR(255),
   created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
   updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
@@ -127,18 +128,6 @@ CREATE TABLE payments (
   created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
--- Cupones / Promociones (opcional)
-CREATE TABLE coupons (
-  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  code VARCHAR(100) UNIQUE NOT NULL,
-  type VARCHAR(50),
-  discount_value NUMERIC(10,2),
-  valid_from TIMESTAMPTZ,
-  valid_to TIMESTAMPTZ,
-  usage_limit INT,
-  used_count INT DEFAULT 0
-);
-
 -- Logs / Auditoría
 CREATE TABLE audit_logs (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -156,6 +145,22 @@ CREATE TABLE stripe_events (
   received_at TIMESTAMPTZ NOT NULL DEFAULT now(),
   payload JSONB
 );
+
+-- Chat en vivo (propio, reemplaza a Tawk.to). Un solo hilo por cliente.
+CREATE TYPE chat_sender_role AS ENUM ('customer', 'admin', 'bot');
+
+CREATE TABLE chat_messages (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  customer_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  sender_id UUID REFERENCES users(id) ON DELETE SET NULL,
+  sender_role chat_sender_role NOT NULL,
+  body TEXT NOT NULL,
+  read_by_admin BOOLEAN NOT NULL DEFAULT FALSE,
+  read_by_customer BOOLEAN NOT NULL DEFAULT FALSE,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE INDEX idx_chat_messages_customer ON chat_messages (customer_id, created_at);
 
 -- Índices adicionales
 CREATE INDEX idx_inventory_product ON inventory (product_id);

@@ -15,9 +15,9 @@ async def list_products(db: AsyncSession, limit: int = 50, offset: int = 0):
     q = await db.execute(select(models.Product).offset(offset).limit(limit))
     return q.scalars().all()
 
-async def create_user(db: AsyncSession, email: str, password: str, full_name: str = None):
+async def create_user(db: AsyncSession, email: str, password: str, full_name: str = None, role: str = 'customer'):
     hashed = pwd_context.hash(password)
-    user = models.User(email=email, password_hash=hashed, full_name=full_name)
+    user = models.User(email=email, password_hash=hashed, full_name=full_name, role=role)
     db.add(user)
     await db.commit()
     await db.refresh(user)
@@ -46,14 +46,14 @@ async def create_order(db: AsyncSession, order: models.Order):
     return order
 
 
-async def create_payment(db: AsyncSession, order_id: str, provider: str, provider_payment_id: str, amount, currency: str = 'USD', status: str = 'initiated', metadata: dict = None):
+async def create_payment(db: AsyncSession, order_id: str, provider: str, provider_payment_id: str, amount, currency: str = 'USD', status: str = 'initiated', payment_metadata: dict = None):
     # Check for existing payment with same provider_payment_id to avoid duplicates
     if provider_payment_id:
         q = await db.execute(select(models.Payment).where(models.Payment.provider == provider).where(models.Payment.provider_payment_id == provider_payment_id))
         existing = q.scalars().first()
         if existing:
             return existing
-    payment = models.Payment(order_id=order_id, provider=provider, provider_payment_id=provider_payment_id, amount=amount, currency=currency, status=status, metadata=metadata)
+    payment = models.Payment(order_id=order_id, provider=provider, provider_payment_id=provider_payment_id, amount=amount, currency=currency, status=status, payment_metadata=payment_metadata)
     db.add(payment)
     await db.commit()
     await db.refresh(payment)
@@ -72,7 +72,14 @@ async def mark_order_paid(db: AsyncSession, order_id: str):
 
 
 async def get_orders_by_user(db: AsyncSession, user_id: str):
-    q = await db.execute(select(models.Order).where(models.Order.user_id == user_id).order_by(models.Order.created_at.desc()))
+    # Excludes 'cart' rows: that status is the customer's live, unsubmitted
+    # cart (see cart.py), not a placed order — it shouldn't show up in order history.
+    q = await db.execute(
+        select(models.Order)
+        .where(models.Order.user_id == user_id)
+        .where(models.Order.status != 'cart')
+        .order_by(models.Order.created_at.desc())
+    )
     return q.scalars().all()
 
 

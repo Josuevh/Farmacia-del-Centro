@@ -30,7 +30,13 @@ async def get_cart(db: AsyncSession = Depends(get_db), current_user=Depends(get_
     if not row:
         return {'items': [], 'total_amount': 0}
     order_id = row[0]
-    q2 = await db.execute('SELECT product_id, quantity, unit_price, total_price FROM order_items WHERE order_id = :oid', {'oid': order_id})
+    q2 = await db.execute(
+        '''SELECT oi.product_id, p.name AS product_name, p.requires_prescription, oi.quantity, oi.unit_price, oi.total_price
+           FROM order_items oi
+           JOIN products p ON p.id = oi.product_id
+           WHERE oi.order_id = :oid''',
+        {'oid': order_id}
+    )
     items = [dict(r) for r in q2.fetchall()]
     return {'order_id': str(order_id), 'items': items, 'total_amount': float(row[3] or 0)}
 

@@ -1,22 +1,26 @@
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.security import OAuth2PasswordRequestForm
-from app.schemas import UserCreate, Token
+from app.schemas import UserCreate, Token, UserOut
 from app.db import get_db
 from app import crud
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.core import security
+from app.core.limiter import limiter
+from app.deps import get_current_active_user
 
 router = APIRouter()
 
 
 @router.post('/register', response_model=dict)
-async def register(user_in: UserCreate, db: AsyncSession = Depends(get_db)):
+@limiter.limit("3/minute")
+async def register(request: Request, user_in: UserCreate, db: AsyncSession = Depends(get_db)):
     user = await crud.create_user(db, user_in.email, user_in.password, user_in.full_name)
     return {"id": str(user.id), "email": user.email}
 
 
 @router.post('/token', response_model=Token)
-async def login_for_access_token(form_data: OAuth2PasswordRequestForm = Depends(), db: AsyncSession = Depends(get_db)):
+@limiter.limit("5/minute")
+async def login_for_access_token(request: Request, form_data: OAuth2PasswordRequestForm = Depends(), db: AsyncSession = Depends(get_db)):
     user = await crud.authenticate_user(db, form_data.username, form_data.password)
     if not user:
         raise HTTPException(status_code=401, detail='Incorrect credentials')
@@ -25,7 +29,8 @@ async def login_for_access_token(form_data: OAuth2PasswordRequestForm = Depends(
 
 
 @router.post('/login', response_model=Token)
-async def login_json(payload: dict, db: AsyncSession = Depends(get_db)):
+@limiter.limit("5/minute")
+async def login_json(request: Request, payload: dict, db: AsyncSession = Depends(get_db)):
     username = payload.get('email')
     password = payload.get('password')
     if not username or not password:
