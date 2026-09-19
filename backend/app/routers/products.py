@@ -44,6 +44,12 @@ async def import_catalog(
         raise HTTPException(status_code=400, detail='El archivo no tiene filas de datos reconocibles. Revisa que use los encabezados de la plantilla.')
     result = await catalog_import.process_rows(db, rows, commit=not dry_run)
     if not dry_run:
+        # process_rows already committed the actual import above — this is a
+        # deliberate second, separate transaction for the audit-log entry (see
+        # commit's docstring: `commit` there also gates whether row changes are
+        # applied at all, so it can't be reused to defer this commit without
+        # breaking the dry-run preview mechanism). Low-severity known gap: if
+        # this second commit fails, the import succeeded with no log of it.
         log_activity(db, current_user, f"Importó catálogo desde {file.filename} ({len(rows)} filas)", resource_type='product')
         await db.commit()
     return result

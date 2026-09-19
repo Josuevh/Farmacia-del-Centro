@@ -1,4 +1,4 @@
-import React, {useEffect, useMemo, useState} from 'react';
+import React, {useCallback, useEffect, useMemo, useState} from 'react';
 import axios from 'axios';
 import { useToast } from '../components/Toast';
 import BarcodeScanner from '../components/BarcodeScanner';
@@ -147,6 +147,12 @@ export default function AdminProducts(){
   }
 
   const saveStock = async (productId) => {
+    // Number('') is 0 in JavaScript — without this guard, saving while the
+    // field is momentarily empty would silently wipe real stock to zero.
+    if (stockValue === '' || Number.isNaN(Number(stockValue)) || Number(stockValue) < 0) {
+      showToast('Ingresa una cantidad válida', 'error');
+      return;
+    }
     try{
       await axios.patch(`/inventory/${productId}`, { quantity: Number(stockValue) }, { headers: authHeaders() });
       showToast('Stock actualizado', 'success');
@@ -156,6 +162,15 @@ export default function AdminProducts(){
       showToast(e.response?.data?.detail || 'No se pudo actualizar el stock', 'error');
     }
   }
+
+  // Memoized: BarcodeScanner's camera-init effect depends on this callback's
+  // identity — a fresh function every render (e.g. any other state update
+  // while the scanner modal is open) would tear down and restart the camera.
+  const handleBarcodeDetected = useCallback((code) => {
+    setForm(f => ({...f, barcode: code}));
+    setScannerOpen(false);
+    showToast('Código escaneado', 'success');
+  }, [showToast]);
 
   const createCategory = async (e) => {
     e.preventDefault();
@@ -475,7 +490,7 @@ export default function AdminProducts(){
 
       {scannerOpen && (
         <BarcodeScanner
-          onDetected={(code) => { setForm(f => ({...f, barcode: code})); setScannerOpen(false); showToast('Código escaneado', 'success'); }}
+          onDetected={handleBarcodeDetected}
           onClose={() => setScannerOpen(false)}
         />
       )}

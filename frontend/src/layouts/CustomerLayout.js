@@ -1,4 +1,4 @@
-import React, { useContext, useEffect, useState } from 'react';
+import React, { useCallback, useContext, useEffect, useState } from 'react';
 import { Outlet, NavLink, useLocation, useNavigate } from 'react-router-dom';
 import { UserContext } from '../context/UserContext';
 import { CartContext } from '../context/CartContext';
@@ -28,10 +28,14 @@ function Header(){
     navigate(`/?q=${encodeURIComponent(term)}`);
   };
 
-  const handleBarcodeDetected = (code) => {
+  // Memoized: BarcodeScanner's camera-init effect depends on this callback's
+  // identity — a fresh function on every render (e.g. from cart/chat polling
+  // updating this layout while the scanner is open) would tear down and
+  // restart the camera stream mid-scan.
+  const handleBarcodeDetected = useCallback((code) => {
     setScannerOpen(false);
     navigate(`/?barcode=${encodeURIComponent(code)}`);
-  };
+  }, [navigate]);
 
   return (
     <header className="app-header">

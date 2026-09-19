@@ -154,6 +154,24 @@ export default function Products(){
     scrollToCatalog();
   }
 
+  // Used by the category checkbox inside the results sidebar — unlike
+  // selectCategoryId (used by the top category strip, where a full reset makes
+  // sense), this only swaps the category and clears any active text search,
+  // without wiping the price range, prescription filter, or sort order the
+  // customer may have already set alongside it.
+  const toggleCategoryFilter = (id, name) => {
+    setActiveTerm('');
+    setSearch('');
+    setBarcodeQuery('');
+    if (id) {
+      setActiveCategoryId(id);
+      setActiveLabel(name);
+    } else {
+      setActiveCategoryId('');
+      setActiveLabel('');
+    }
+  }
+
   const selectTerm = (term, label = term) => {
     clearFilters();
     if (term) {
@@ -216,7 +234,7 @@ export default function Products(){
                   <input
                     type="checkbox"
                     checked={activeCategoryId === cat.id}
-                    onChange={() => selectCategoryId(activeCategoryId === cat.id ? '' : cat.id, cat.name)}
+                    onChange={() => toggleCategoryFilter(activeCategoryId === cat.id ? '' : cat.id, cat.name)}
                   />
                   <span>{cat.name}</span>
                   <span className="results-filter-count">{categoryCounts[cat.id] || 0}</span>

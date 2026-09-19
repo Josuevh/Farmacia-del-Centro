@@ -1,4 +1,4 @@
-import React, {useEffect, useState} from 'react';
+import React, {useEffect, useRef, useState} from 'react';
 import axios from 'axios';
 import { statusBadgeClass } from '../utils/badge';
 import { useToast } from '../components/Toast';
@@ -24,6 +24,7 @@ export default function Prescriptions(){
   const [doctorName, setDoctorName] = useState('');
   const [issuedDate, setIssuedDate] = useState('');
   const [uploading, setUploading] = useState(false);
+  const fileInputRef = useRef(null);
   const { showToast } = useToast();
 
   const load = () => {
@@ -55,6 +56,10 @@ export default function Prescriptions(){
       showToast(e.response?.data?.detail || 'No se pudo subir la receta', 'error');
     }finally{
       setUploading(false);
+      // Clears the underlying <input>'s value (not just React state) — without
+      // this, re-selecting the exact same file for a later upload silently does
+      // nothing, since the browser only fires onChange when the value differs.
+      if (fileInputRef.current) fileInputRef.current.value = '';
     }
   }
 
@@ -72,6 +77,7 @@ export default function Prescriptions(){
         <form onSubmit={submitUpload}>
           <label className={"dropzone" + (file ? ' has-file' : '')}>
             <input
+              ref={fileInputRef}
               className="dropzone-input"
               type="file"
               accept=".jpg,.jpeg,.png,.pdf,image/jpeg,image/png,application/pdf"

@@ -15,12 +15,19 @@ async def list_products(db: AsyncSession, limit: int = 50, offset: int = 0):
     q = await db.execute(select(models.Product).offset(offset).limit(limit))
     return q.scalars().all()
 
-async def create_user(db: AsyncSession, email: str, password: str, full_name: str = None, role: str = 'customer'):
+async def create_user(db: AsyncSession, email: str, password: str, full_name: str = None, role: str = 'customer', commit: bool = True):
     hashed = pwd_context.hash(password)
     user = models.User(email=email, password_hash=hashed, full_name=full_name, role=role)
     db.add(user)
-    await db.commit()
-    await db.refresh(user)
+    if commit:
+        await db.commit()
+        await db.refresh(user)
+    else:
+        # Caller wants to add more to the same transaction (e.g. an activity-log
+        # entry) before committing — flush assigns the server-generated id/defaults
+        # without ending the transaction.
+        await db.flush()
+        await db.refresh(user)
     return user
 
 async def authenticate_user(db: AsyncSession, email: str, password: str):

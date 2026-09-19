@@ -45,9 +45,13 @@ async def create_operator(data: OperatorCreate, db: AsyncSession = Depends(get_d
     q = await db.execute(select(models.User).where(models.User.email == data.email))
     if q.scalars().first():
         raise HTTPException(status_code=400, detail='Ya existe una cuenta con ese correo')
-    user = await crud.create_user(db, data.email, data.password, data.full_name, role='operador')
+    # commit=False: the account creation and its audit-log entry land in one
+    # transaction — if the commit below fails, the operator account was never
+    # actually created either, instead of existing with no record of who made it.
+    user = await crud.create_user(db, data.email, data.password, data.full_name, role='operador', commit=False)
     log_activity(db, current_user, f"Dio de alta al operador {user.email}", resource_type='user', resource_id=user.id)
     await db.commit()
+    await db.refresh(user)
     return _serialize_operator(user)
 
 

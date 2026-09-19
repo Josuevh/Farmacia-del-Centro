@@ -6,7 +6,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app import crud
 from decimal import Decimal
 from app.deps import get_current_active_user
-from app.services.inventory_service import finalize_order_inventory
+from app.services.inventory_service import finalize_order_inventory, release_order_inventory
 from app.services.order_service import create_order_with_items
 
 router = APIRouter()
@@ -124,5 +124,12 @@ async def checkout_order(payload: dict, db: AsyncSession = Depends(get_db), curr
             metadata={'order_id': str(order.id)}
         )
     except stripe.error.StripeError as e:
+        # The order was already committed with stock reserved before Stripe was
+        # ever contacted — if Stripe itself fails, that reservation must be given
+        # back and the order marked cancelled, or the stock is gone forever even
+        # though nothing sold.
+        await release_order_inventory(db, str(order.id))
+        order.status = 'cancelled'
+        await db.commit()
         raise HTTPException(status_code=502, detail=f'Stripe error: {e.user_message or str(e)}')
     return {'checkout_url': session.url, 'session_id': session.id, 'order_id': str(order.id)}

@@ -39,6 +39,18 @@ async def release_inventory(db: AsyncSession, product_id: str, quantity: int) ->
     return True
 
 
+async def release_order_inventory(db: AsyncSession, order_id: str) -> bool:
+    """Gives back every unit reserved for an order that never got paid (checkout
+    abandoned, Stripe session creation failed, or an admin cancelled it before
+    payment) — the counterpart to finalize_order_inventory for orders that don't
+    go through."""
+    q = await db.execute(select(models.OrderItem).where(models.OrderItem.order_id == order_id))
+    items = q.scalars().all()
+    for it in items:
+        await release_inventory(db, str(it.product_id), it.quantity)
+    return True
+
+
 async def finalize_order_inventory(db: AsyncSession, order_id: str) -> bool:
     q = await db.execute(select(models.OrderItem).where(models.OrderItem.order_id == order_id))
     items = q.scalars().all()

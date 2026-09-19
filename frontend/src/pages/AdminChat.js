@@ -15,7 +15,10 @@ export default function AdminChat(){
   const [input, setInput] = useState('');
   const [sending, setSending] = useState(false);
   const scrollRef = useRef(null);
+  const selectedRef = useRef(selected);
   const { showToast } = useToast();
+
+  useEffect(() => { selectedRef.current = selected; }, [selected]);
 
   const loadThreads = async () => {
     try{
@@ -28,6 +31,10 @@ export default function AdminChat(){
   const loadThread = async (customerId) => {
     try{
       const resp = await axios.get(`/chat/admin/threads/${customerId}`, { headers: authHeaders() });
+      // Discard a response for a thread the admin has since navigated away from —
+      // without this, a slow response for the previous customer can land after
+      // switching threads and overwrite the new thread's just-loaded messages.
+      if (selectedRef.current !== customerId) return;
       setMessages(resp.data);
       loadThreads();
     }catch(e){ /* silent */ }

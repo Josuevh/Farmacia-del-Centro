@@ -7,7 +7,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
 from app import crud, models
 from app.schemas import OrderStatusUpdate
-from app.services.inventory_service import finalize_order_inventory
+from app.services.inventory_service import finalize_order_inventory, release_order_inventory
 from app.services.activity_log import log_activity
 
 router = APIRouter()
@@ -44,7 +44,11 @@ async def list_orders(limit: int = 100, offset: int = 0, db: AsyncSession = Depe
 
 @router.patch('/orders/{order_id}/status')
 async def update_order_status(order_id: str, data: OrderStatusUpdate, db: AsyncSession = Depends(get_db), current_user=Depends(get_current_admin)):
-    q = await db.execute(select(models.Order).where(models.Order.id == order_id))
+    # Locks the row until this request commits or rolls back — without this, two
+    # concurrent requests (a double-click, or two staff sessions) can both read
+    # the same 'pending_payment' order before either writes, both pass the
+    # transition check below, and both create a duplicate manual payment.
+    q = await db.execute(select(models.Order).where(models.Order.id == order_id).with_for_update())
     order = q.scalars().first()
     if not order:
         raise HTTPException(status_code=404, detail='Order not found')
@@ -62,6 +66,10 @@ async def update_order_status(order_id: str, data: OrderStatusUpdate, db: AsyncS
             amount=order.total_amount, currency='usd', status='succeeded',
             payment_metadata={'marked_paid_by_admin': str(current_user.id)},
         )
+    elif order.status == 'pending_payment' and data.status == 'cancelled':
+        # Nothing was ever charged, but stock was reserved at checkout — give it
+        # back or it stays permanently unavailable even though nothing sold.
+        await release_order_inventory(db, str(order.id))
 
     previous_status = order.status
     final_status = data.status

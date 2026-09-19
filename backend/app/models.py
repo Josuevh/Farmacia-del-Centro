@@ -3,6 +3,15 @@ from sqlalchemy.dialects.postgresql import UUID, JSONB
 from app.db import Base
 import datetime
 
+
+def _utcnow():
+    # All timestamp columns below are DateTime(timezone=True) — a naive
+    # datetime.utcnow() default stores a value with no offset attached, which
+    # code that builds explicit UTC-aware cutoffs (e.g. chat.py's _parse_since)
+    # then compares against; this keeps every default consistently tz-aware.
+    return datetime.datetime.now(datetime.timezone.utc)
+
+
 class User(Base):
     __tablename__ = "users"
     id = sa.Column(UUID(as_uuid=True), primary_key=True, server_default=sa.text('gen_random_uuid()'))
@@ -15,8 +24,8 @@ class User(Base):
     # Refreshed on every authenticated request (throttled) so the admin panel can show
     # which operators are online right now, without needing websockets.
     last_seen_at = sa.Column(sa.DateTime(timezone=True))
-    created_at = sa.Column(sa.DateTime(timezone=True), default=datetime.datetime.utcnow)
-    updated_at = sa.Column(sa.DateTime(timezone=True), default=datetime.datetime.utcnow, onupdate=datetime.datetime.utcnow)
+    created_at = sa.Column(sa.DateTime(timezone=True), default=_utcnow)
+    updated_at = sa.Column(sa.DateTime(timezone=True), default=_utcnow, onupdate=_utcnow)
 
 class Category(Base):
     __tablename__ = "categories"
@@ -24,8 +33,8 @@ class Category(Base):
     name = sa.Column(sa.String(255), nullable=False)
     slug = sa.Column(sa.String(255), unique=True)
     parent_id = sa.Column(UUID(as_uuid=True), sa.ForeignKey('categories.id', ondelete='SET NULL'))
-    created_at = sa.Column(sa.DateTime(timezone=True), default=datetime.datetime.utcnow)
-    updated_at = sa.Column(sa.DateTime(timezone=True), default=datetime.datetime.utcnow, onupdate=datetime.datetime.utcnow)
+    created_at = sa.Column(sa.DateTime(timezone=True), default=_utcnow)
+    updated_at = sa.Column(sa.DateTime(timezone=True), default=_utcnow, onupdate=_utcnow)
 
 class Product(Base):
     __tablename__ = "products"
@@ -40,8 +49,8 @@ class Product(Base):
     requires_prescription = sa.Column(sa.Boolean, default=False)
     is_active = sa.Column(sa.Boolean, default=True)
     attributes = sa.Column(JSONB)
-    created_at = sa.Column(sa.DateTime(timezone=True), default=datetime.datetime.utcnow)
-    updated_at = sa.Column(sa.DateTime(timezone=True), default=datetime.datetime.utcnow, onupdate=datetime.datetime.utcnow)
+    created_at = sa.Column(sa.DateTime(timezone=True), default=_utcnow)
+    updated_at = sa.Column(sa.DateTime(timezone=True), default=_utcnow, onupdate=_utcnow)
 
 class Inventory(Base):
     __tablename__ = "inventory"
@@ -52,7 +61,7 @@ class Inventory(Base):
     batch_number = sa.Column(sa.String(100))
     expiry_date = sa.Column(sa.Date)
     location = sa.Column(sa.String(255))
-    last_updated = sa.Column(sa.DateTime(timezone=True), default=datetime.datetime.utcnow)
+    last_updated = sa.Column(sa.DateTime(timezone=True), default=_utcnow)
 
 class Order(Base):
     __tablename__ = "orders"
@@ -63,8 +72,8 @@ class Order(Base):
     currency = sa.Column(sa.String(3), default='USD')
     billing_address = sa.Column(JSONB)
     pickup_code = sa.Column(sa.String(20), unique=True)
-    created_at = sa.Column(sa.DateTime(timezone=True), default=datetime.datetime.utcnow)
-    updated_at = sa.Column(sa.DateTime(timezone=True), default=datetime.datetime.utcnow, onupdate=datetime.datetime.utcnow)
+    created_at = sa.Column(sa.DateTime(timezone=True), default=_utcnow)
+    updated_at = sa.Column(sa.DateTime(timezone=True), default=_utcnow, onupdate=_utcnow)
 
 class OrderItem(Base):
     __tablename__ = "order_items"
@@ -86,7 +95,7 @@ class Payment(Base):
     currency = sa.Column(sa.String(3), default='USD')
     status = sa.Column(sa.Enum('initiated','succeeded','failed','refunded', name='payment_status'), nullable=False, server_default='initiated')
     payment_metadata = sa.Column('metadata', JSONB)
-    created_at = sa.Column(sa.DateTime(timezone=True), default=datetime.datetime.utcnow)
+    created_at = sa.Column(sa.DateTime(timezone=True), default=_utcnow)
 
 class Prescription(Base):
     __tablename__ = "prescriptions"
@@ -99,8 +108,8 @@ class Prescription(Base):
     status = sa.Column(sa.Enum('pending','approved','rejected', name='prescription_status'), nullable=False, server_default='pending')
     reviewed_by = sa.Column(UUID(as_uuid=True), sa.ForeignKey('users.id', ondelete='SET NULL'))
     notes = sa.Column(sa.Text)
-    created_at = sa.Column(sa.DateTime(timezone=True), default=datetime.datetime.utcnow)
-    updated_at = sa.Column(sa.DateTime(timezone=True), default=datetime.datetime.utcnow, onupdate=datetime.datetime.utcnow)
+    created_at = sa.Column(sa.DateTime(timezone=True), default=_utcnow)
+    updated_at = sa.Column(sa.DateTime(timezone=True), default=_utcnow, onupdate=_utcnow)
 
 class ProductImage(Base):
     __tablename__ = "product_images"
@@ -118,13 +127,13 @@ class AuditLog(Base):
     resource_type = sa.Column(sa.String(100))
     resource_id = sa.Column(UUID(as_uuid=True))
     meta = sa.Column(JSONB)
-    created_at = sa.Column(sa.DateTime(timezone=True), default=datetime.datetime.utcnow)
+    created_at = sa.Column(sa.DateTime(timezone=True), default=_utcnow)
 
 
 class StripeEvent(Base):
     __tablename__ = "stripe_events"
     event_id = sa.Column(sa.String(255), primary_key=True)
-    received_at = sa.Column(sa.DateTime(timezone=True), default=datetime.datetime.utcnow)
+    received_at = sa.Column(sa.DateTime(timezone=True), default=_utcnow)
     payload = sa.Column(JSONB)
 
 
@@ -139,4 +148,4 @@ class ChatMessage(Base):
     body = sa.Column(sa.Text, nullable=False)
     read_by_admin = sa.Column(sa.Boolean, nullable=False, default=False)
     read_by_customer = sa.Column(sa.Boolean, nullable=False, default=False)
-    created_at = sa.Column(sa.DateTime(timezone=True), default=datetime.datetime.utcnow)
+    created_at = sa.Column(sa.DateTime(timezone=True), default=_utcnow)
