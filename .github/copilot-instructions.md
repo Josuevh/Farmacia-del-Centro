@@ -55,82 +55,53 @@ docker-compose up -d
   mandado su archivo real de Pharmacy Lite/Bisoft — cuando llegue, puede
   necesitar mapeo de columnas.
 
-## Bugs reales encontrados en una revisión de código (2026-09-19) — pendientes de arreglar
+## Bugs encontrados en una revisión de código (2026-09-19) — 8 de 9 ya arreglados
 
-Ordenados por severidad. Cada uno fue verificado contra el código real, no es
-solo sospecha.
+Una revisión completa del código encontró 9 bugs reales, verificados contra
+el código (no solo sospecha). 8 ya se corrigieron y se probaron en vivo el
+mismo día — no hace falta tocarlos de nuevo salvo que reaparezca el síntoma:
 
-1. **Inventario reservado nunca se libera en pedidos que no se pagan**
-   (`backend/app/services/order_service.py:81` y
-   `backend/app/routers/admin.py` en la transición `pending_payment` →
-   `cancelled`). Ni cuando falla la creación de la sesión de Stripe
-   (`backend/app/routers/payments.py`'s `checkout_order`) ni cuando un admin
-   cancela un pedido sin pagar se llama a `release_inventory`. Arreglo:
-   llamar `release_inventory` para cada item del pedido en ambos casos.
+1. ✅ Inventario reservado que nunca se liberaba en pedidos sin pagar —
+   corregido con `release_order_inventory()` en `inventory_service.py`,
+   llamado desde `payments.py` (falla de Stripe) y `admin.py` (cancelación
+   de un pedido sin pagar).
+2. ✅ Condición de carrera al marcar "pagado" manualmente — corregido con
+   `SELECT ... FOR UPDATE` en `admin.py`'s `update_order_status`.
+3. ✅ El escáner de código de barras reiniciaba la cámara en cada
+   re-render del padre — corregido con `useCallback` en
+   `CustomerLayout.js` y `AdminProducts.js`.
+4. ✅ Guardar el stock con el campo vacío lo dejaba en cero — corregido
+   con validación en `saveStock` (`AdminProducts.js`).
+5. ✅ El checkbox de categoría en la barra lateral borraba los demás
+   filtros — corregido con una función separada `toggleCategoryFilter`
+   en `Products.js` que no llama a `clearFilters()`.
+6. ✅ El chat de admin podía mostrar mensajes del cliente equivocado en
+   una carrera de tiempos — corregido con un `selectedRef` en
+   `AdminChat.js` que descarta respuestas obsoletas.
+7. ✅ Timestamps sin zona horaria (`datetime.datetime.utcnow()`) en
+   columnas `DateTime(timezone=True)` y en el `exp` del JWT — corregido
+   con un helper `_utcnow()` en `models.py` (reemplazó las 20 ocurrencias)
+   y `datetime.now(timezone.utc)` en `security.py`.
+8. ✅ El input de archivo no se reseteaba tras un intento de subir
+   receta, bloqueando re-seleccionar el mismo archivo — corregido con un
+   `ref` en `Prescriptions.js` que limpia `.value` en el `finally`.
 
-2. **Condición de carrera al marcar "pagado" manualmente**
-   (`backend/app/routers/admin.py`'s `update_order_status`, no hay bloqueo
-   de fila). Dos clics rápidos o dos sesiones de admin/operador simultáneas
-   pueden duplicar el pago y liberar inventario dos veces, porque
-   `crud.create_payment`'s deduplicación solo aplica cuando hay
-   `provider_payment_id` (el flujo manual siempre lo deja en `None`).
-   Arreglo: usar `SELECT ... FOR UPDATE` al leer el pedido, o una
-   verificación explícita de "ya existe un pago succeeded para esta orden"
-   antes de insertar uno nuevo.
-
-3. **El escáner de código de barras reinicia la cámara si el componente padre
-   se vuelve a renderizar** (`frontend/src/components/BarcodeScanner.js:32`
-   — el `useEffect` depende de `onDetected`, que en
-   `frontend/src/layouts/CustomerLayout.js:31` es una función nueva en cada
-   render, no memoizada). Arreglo: envolver `handleBarcodeDetected` (y el
-   equivalente en `AdminProducts.js`) en `useCallback`.
-
-4. **Guardar el stock con el campo vacío lo deja en cero**
-   (`frontend/src/pages/AdminProducts.js:151` — `Number('')` es `0` en
-   JavaScript, sin validación). Arreglo: deshabilitar el botón "Guardar" o
-   validar que el campo no esté vacío/no sea NaN antes del PATCH.
-
-5. **Un checkbox de categoría en la barra lateral de resultados borra los
-   filtros de precio/receta que el cliente ya había puesto**
-   (`frontend/src/pages/Products.js:219`, llama a `selectCategoryId` que
-   siempre corre `clearFilters()` primero). Arreglo: que el checkbox de
-   categoría en la barra lateral solo cambie `activeCategoryId`, sin limpiar
-   los demás filtros.
-
-6. **El panel de chat de admin puede mostrar mensajes del cliente
-   equivocado** en una condición de carrera poco común
-   (`frontend/src/pages/AdminChat.js:28`, `loadThread` no verifica que la
-   respuesta siga correspondiendo al cliente actualmente seleccionado antes
-   de hacer `setMessages`). Arreglo: guardar el `customerId` de la petición
-   y comparar contra `selected` antes de aplicar la respuesta, o usar
-   `AbortController`.
-
-7. **Timestamps sin zona horaria comparados contra cortes con zona horaria
-   explícita en el chat** (`backend/app/models.py:15` y otros —
-   `created_at` usa `datetime.datetime.utcnow()` naive en columnas
-   `DateTime(timezone=True)`, mientras `chat.py`'s `_parse_since` construye
-   cortes con `timezone.utc` explícito). Riesgo bajo mientras el servidor de
-   Postgres esté en UTC (el default de la imagen de Docker), pero es frágil.
-   Arreglo: usar `datetime.datetime.now(timezone.utc)` en vez de
-   `datetime.datetime.utcnow()` en los defaults de columna.
-
-8. **El input de archivo no se resetea tras un error al subir una receta**
-   (`frontend/src/pages/Prescriptions.js:37` — reseleccionar el mismo
-   archivo no dispara `onChange`). Arreglo: usar una `ref` al `<input>` y
-   limpiar `ref.current.value = ''` tras cada intento, o cambiar la `key`
-   del input para forzar su remount.
-
-9. **El registro de auditoría no es atómico con la acción que describe** al
-   crear un operador o importar catálogo
-   (`backend/app/routers/operators.py:50`, y
-   `backend/app/routers/products.py`'s `import_catalog`) — ambas acciones
-   ya comitearon internamente (`crud.create_user` / `catalog_import.process_rows`)
-   antes de que `log_activity` se guarde en un commit aparte. Si ese segundo
-   commit falla, la acción sí ocurrió pero sin rastro en el historial.
-   Arreglo: bajo prioridad, pero si se resuelve, sería reestructurar para
-   que `log_activity` se comitee en la misma transacción que la acción
-   principal (requeriría cambiar `crud.create_user` y
-   `catalog_import.process_rows` para no comitear internamente).
+9. ⚠️ **Sigue pendiente (parcial)**: el registro de auditoría no es
+   atómico con la acción que describe. Para dar de alta un operador
+   (`backend/app/routers/operators.py`) YA SE CORRIGIÓ — `crud.create_user`
+   ahora acepta `commit=False` para que la cuenta y su entrada en el
+   historial se guarden en una sola transacción. **Para importar catálogo
+   (`backend/app/routers/products.py`'s `import_catalog`) SIGUE SIN
+   corregirse a propósito**: el parámetro `commit` de
+   `catalog_import.process_rows` no solo controla el guardado final, sino
+   si cada fila se aplica de verdad o no (es el mecanismo de vista previa
+   / dry-run) — reutilizarlo para diferir el commit rompería el import
+   real convirtiéndolo en una vista previa silenciosa. Si se quiere
+   corregir esto de verdad, hay que separar esas dos responsabilidades
+   dentro de `process_rows` (aplicar cambios vs. cuándo comitear), no solo
+   cambiar el valor de `commit` en la llamada — probar exhaustivamente el
+   import real después de cualquier cambio ahí, incluyendo con un archivo
+   grande, antes de confiar en el resultado.
 
 ## Checklist de lanzamiento pendiente
 
